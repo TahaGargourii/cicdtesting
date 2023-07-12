@@ -36,6 +36,9 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v1
 
-    - name: Build and Push Docker image
-      run: |
-        docker buildx build --push --tag tahalc/test:latest .
+    - uses : mr-smithers-excellent/docker-build-push@v4
+      with:
+       image: tahalc/test
+       registry: docker.io
+       username: ${{secrets.DOCKER_USERNAME}}
+       password: ${{secrets.DOCKER_PASSWORD}}
