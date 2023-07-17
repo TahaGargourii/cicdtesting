@@ -1,36 +1,57 @@
-name: Deploy to AWS Lightsail Containers
+name: CI/CD
 
 on:
-  push:
+  workflow_dispatch:
     branches:
-      - main 
+      - main
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn --batch-mode -DskipTests package
+
+      - name: Prepare Docker image
+        run: |
+          mkdir staging
+          cp target/*.jar staging
+          cd staging
+          echo 'FROM openjdk:17' >> Dockerfile
+          echo 'COPY ./*.jar /app/app.jar' >> Dockerfile
+          echo 'CMD ["java", "-jar", "/app/app.jar"]' >> Dockerfile
+
+      - name: Build Docker image
+        run: docker build -t aishootimage:latest staging
 
       - name: Configure AWS credentials
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-west-2  # Replace with your desired region
         run: |
-          aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
-          aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
-          aws configure set default.region $AWS_DEFAULT_REGION
+          mkdir $HOME/.aws
+          echo "[default]" >> $HOME/.aws/credentials
+          echo "aws_access_key_id = ${{ secrets.AWS_ACCESS_KEY_ID }}" >> $HOME/.aws/credentials
+          echo "aws_secret_access_key = ${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $HOME/.aws/credentials
+          echo "[default]" >> $HOME/.aws/config
+          echo "region = us-east-1" >> $HOME/.aws/config
 
-      - name: Install or Update AWS CLI
+      - name: Login to Amazon ECR
         run: |
-          curl "https://d1vvhvl2y92vvt.cloudfront.net/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
-          sudo ./aws/install --update
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 665571210309.dkr.ecr.us-east-1.amazonaws.com
 
-      - name: Authenticate AWS CLI with Lightsail
-        run: aws lightsail push-container-image --region us-west-2 --service-name my-service --label v1 --image 123456789012.dkr.ecr.us-west-2.amazonaws.com/my-repository:latest
+      - name: Tag Docker image
+        run: |
+          docker tag aishootimage:latest 665571210309.dkr.ecr.us-east-1.amazonaws.com/aishootimage:latest
 
-      - name: Deploy to AWS Lightsail Containers
-        run: aws lightsail create-container-service-deployment --region us-west-2 --service-name my-service --containers my-container
+      - name: Push Docker image to Amazon ECR
+        run: |
+          docker push 665571210309.dkr.ecr.us-east-1.amazonaws.com/aishootimage:latest
